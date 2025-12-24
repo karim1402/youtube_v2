@@ -16,10 +16,10 @@ jobs:
       - name: Deploy via SFTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USERNAME }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          port: ${{ secrets.SFTP_PORT }}
+          server: 148.230.116.157
+          username: karim-ssh
+          password: AsdPvdE0IX9n1ZOnpb5z
+          port: 22
           protocol: sftp
           server-dir: /home/karim/htdocs/socialproductionmedia.com/
           exclude: |
@@ -36,10 +36,10 @@ jobs:
       - name: Run post-deploy commands
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USERNAME }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          port: ${{ secrets.SFTP_PORT }}
+          host: 148.230.116.157
+          username: karim-ssh
+          password: AsdPvdE0IX9n1ZOnpb5z
+          port: 22
           script: |
             cd /home/karim/htdocs/socialproductionmedia.com
             composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
