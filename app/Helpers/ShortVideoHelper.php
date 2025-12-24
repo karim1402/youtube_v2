@@ -82,6 +82,10 @@ class ShortVideoHelper
         self::copyAndMergeToTargetDuration();
         Log::info("Short video merged to target duration successfully.");
         
+        // Add intro video
+        self::addIntro();
+        Log::info("Intro added to short video successfully.");
+        
         return $targetMinutes;
     }
 
@@ -378,6 +382,77 @@ class ShortVideoHelper
             Log::error("Failed to merge short video. FFmpeg output: " . implode("\n", $output));
             return false;
         }
+    }
+
+    /**
+     * Add random intro video to the start of the final video
+     */
+    public static function addIntro()
+    {
+        $introPath = storage_path('app/intros');
+        $mainVideoPath = storage_path('app/outputs/short_video_final.mp4');
+        $outputPath = storage_path('app/outputs/short_video_with_intro.mp4');
+
+        if (!file_exists($introPath) || !is_dir($introPath)) {
+            Log::warning("Intros folder not found: {$introPath}");
+            return false;
+        }
+
+        $intros = collect(File::files($introPath))
+            ->filter(function ($file) {
+                return in_array(strtolower($file->getExtension()), ['mp4', 'mov', 'avi']);
+            })
+            ->values();
+
+        if ($intros->isEmpty()) {
+            Log::warning("No intro videos found");
+            return false;
+        }
+
+        $randomIntro = $intros->random()->getPathname();
+        $fixedIntroPath = storage_path('app/finals/fixed_intro_short.mp4');
+
+        // Get video specs from main video
+        $probeCmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate -of csv=p=0 " . escapeshellarg($mainVideoPath);
+        $specs = trim(shell_exec($probeCmd));
+        list($width, $height, $frameRate) = explode(',', $specs);
+
+        // Re-encode intro to match main video
+        $filterComplex = "scale={$width}:{$height}:force_original_aspect_ratio=decrease,pad={$width}:{$height}:(ow-iw)/2:(oh-ih)/2";
+        
+        $reencodeCmd = "ffmpeg -y -i " . escapeshellarg($randomIntro)
+            . " -c:v libx264 -preset fast -crf 23"
+            . " -vf " . escapeshellarg($filterComplex)
+            . " -c:a aac -b:a 192k -ar 44100"
+            . " " . escapeshellarg($fixedIntroPath) . " 2>&1";
+
+        shell_exec($reencodeCmd);
+
+        if (!file_exists($fixedIntroPath)) {
+            Log::error("Failed to re-encode intro");
+            return false;
+        }
+
+        // Concat intro + main video
+        $listFile = storage_path('app/short_intro_list.txt');
+        file_put_contents($listFile, "file '$fixedIntroPath'\nfile '$mainVideoPath'\n");
+
+        $ffmpegCmd = "ffmpeg -f concat -safe 0 -i " . escapeshellarg($listFile) . " -c copy " . escapeshellarg($outputPath) . " -y 2>&1";
+        exec($ffmpegCmd, $output, $returnVar);
+
+        // Cleanup and rename
+        unlink($listFile);
+        unlink($fixedIntroPath);
+
+        if ($returnVar === 0 && file_exists($outputPath)) {
+            unlink($mainVideoPath);
+            rename($outputPath, $mainVideoPath);
+            Log::info("Intro added successfully to short video");
+            return true;
+        }
+
+        Log::error("Failed to add intro: " . implode("\n", $output));
+        return false;
     }
 
     /**
