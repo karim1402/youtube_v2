@@ -18,7 +18,7 @@ jobs:
 
       - name: Deploy via rsync with password
         run: |
-          sshpass -p 'AsdPvdE0IX9n1ZOnpb5z' rsync -avz --delete \
+          sshpass -p 'AsdPvdE0IX9n1ZOnpb5z' rsync -rlvz --no-times --no-perms \
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude 'vendor' \
@@ -27,6 +27,8 @@ jobs:
             --exclude 'storage/framework/cache/*' \
             --exclude 'storage/framework/sessions/*' \
             --exclude 'storage/framework/views/*' \
+            --exclude 'storage/app/white_audio/*' \
+            --exclude '.DS_Store' \
             -e "ssh -o StrictHostKeyChecking=no -p 22" \
             ./ karim-ssh@148.230.116.157:/home/karim/htdocs/socialproductionmedia.com/
 
