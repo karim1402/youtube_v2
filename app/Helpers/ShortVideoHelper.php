@@ -207,38 +207,58 @@ class ShortVideoHelper
      */
     public static function mixAudioForDuration(int $durationSeconds = 300)
     {
+        Log::info("Starting audio generation for {$durationSeconds} seconds");
+        
+        // Create directory if it doesn't exist
+        $directory = storage_path('app/white_audio');
+        if (!file_exists($directory)) {
+            mkdir($directory, 0755, true);
+        }
+        
         self::generateWhiteNoiseForDuration($durationSeconds);
+        Log::info("White noise generated");
+        
         self::generatePinkNoiseForDuration($durationSeconds);
+        Log::info("Pink noise generated");
+        
         self::generateBrownNoiseForDuration($durationSeconds);
+        Log::info("Brown noise generated");
 
         $whiteNoisePath = storage_path('app/white_audio/white_short.mp3');
         $pinkNoisePath = storage_path('app/white_audio/pink_short.mp3');
         $brownNoisePath = storage_path('app/white_audio/brown_short.mp3');
+        $outputPath = storage_path('app/white_audio/mixed_short.mp3');
 
-        $command = [
-            'ffmpeg',
-            '-y',
-            '-i', $pinkNoisePath,
-            '-i', $brownNoisePath,
-            '-filter_complex',
-            '[0:a][1:a]amix=inputs=2:duration=longest[a]',
-            '-map', '[a]',
-            '-c:a', 'libmp3lame',
-            '-q:a', '2',
-            '-ar', '44100',
-            storage_path('app/white_audio/mixed_short.mp3'),
-        ];
+        // Check if noise files were created
+        if (!file_exists($pinkNoisePath)) {
+            Log::error("Pink noise file not created: {$pinkNoisePath}");
+        }
+        if (!file_exists($brownNoisePath)) {
+            Log::error("Brown noise file not created: {$brownNoisePath}");
+        }
 
-        $process = new Process($command);
-        $process->setTimeout(600);
-        $process->run();
+        // Mix the audio files using shell_exec for reliability
+        $cmd = "ffmpeg -y -i " . escapeshellarg($pinkNoisePath) 
+            . " -i " . escapeshellarg($brownNoisePath)
+            . " -filter_complex \"[0:a][1:a]amix=inputs=2:duration=longest[a]\""
+            . " -map \"[a]\" -c:a libmp3lame -q:a 2 -ar 44100 "
+            . escapeshellarg($outputPath) . " 2>&1";
+        
+        $result = shell_exec($cmd);
+        Log::info("Mix audio result: " . substr($result, -200));
 
         // Cleanup individual noise files
-        if (file_exists($whiteNoisePath)) unlink($whiteNoisePath);
-        if (file_exists($pinkNoisePath)) unlink($pinkNoisePath);
-        if (file_exists($brownNoisePath)) unlink($brownNoisePath);
+        if (file_exists($whiteNoisePath)) @unlink($whiteNoisePath);
+        if (file_exists($pinkNoisePath)) @unlink($pinkNoisePath);
+        if (file_exists($brownNoisePath)) @unlink($brownNoisePath);
 
-        return ['status' => 'success'];
+        if (file_exists($outputPath)) {
+            Log::info("Mixed audio created successfully: " . filesize($outputPath) . " bytes");
+            return ['status' => 'success'];
+        }
+        
+        Log::error("Failed to create mixed audio");
+        return ['status' => 'error'];
     }
 
     /**
@@ -475,36 +495,22 @@ class ShortVideoHelper
 
         $filePath = $directory . '/' . $filename;
 
-        $audioFilters = [
-            "volume={$volume}*{$amplitudeVar}",
-            "equalizer=f=100:t=q:w=1:g={$bassBoost}",
-            "equalizer=f=1000:t=q:w=1:g={$midCut}",
-            "equalizer=f=8000:t=q:w=1:g={$trebleBoost}"
-        ];
+        $audioFilters = "volume={$volume}*{$amplitudeVar},equalizer=f=100:t=q:w=1:g={$bassBoost},equalizer=f=1000:t=q:w=1:g={$midCut},equalizer=f=8000:t=q:w=1:g={$trebleBoost}";
 
-        $filterComplex = implode(',', $audioFilters);
+        // Use shell_exec for reliability with long-running processes
+        $cmd = "ffmpeg -y -f lavfi -i \"anoisesrc=color=white:duration={$duration}:sample_rate=44100:seed={$seed}\" "
+            . "-af \"" . $audioFilters . "\" "
+            . "-c:a libmp3lame -q:a 2 -ar 44100 "
+            . escapeshellarg($filePath) . " 2>&1";
+        
+        shell_exec($cmd);
 
-        $command = [
-            'ffmpeg',
-            '-y',
-            '-f', 'lavfi',
-            '-i', "anoisesrc=color=white:duration={$duration}:sample_rate=44100:seed={$seed}",
-            '-af', $filterComplex,
-            '-c:a', 'libmp3lame',
-            '-q:a', '2',
-            '-ar', '44100',
-            $filePath
-        ];
-
-        $process = new Process($command);
-        $process->setTimeout($duration + 60);
-        $process->run();
-
-        if (!$process->isSuccessful()) {
-            return ['status' => 'error', 'message' => 'Failed to generate white noise'];
+        if (file_exists($filePath)) {
+            return ['status' => 'success'];
         }
-
-        return ['status' => 'success'];
+        
+        Log::error("Failed to generate white noise");
+        return ['status' => 'error', 'message' => 'Failed to generate white noise'];
     }
 
     /**
@@ -527,36 +533,21 @@ class ShortVideoHelper
 
         $filePath = $directory . '/' . $filename;
 
-        $audioFilters = [
-            "volume={$volume}*{$amplitudeVar}",
-            "equalizer=f=100:t=q:w=1:g={$bassBoost}",
-            "equalizer=f=1000:t=q:w=1:g={$midCut}",
-            "equalizer=f=8000:t=q:w=1:g={$trebleBoost}"
-        ];
+        $audioFilters = "volume={$volume}*{$amplitudeVar},equalizer=f=100:t=q:w=1:g={$bassBoost},equalizer=f=1000:t=q:w=1:g={$midCut},equalizer=f=8000:t=q:w=1:g={$trebleBoost}";
 
-        $filterComplex = implode(',', $audioFilters);
+        $cmd = "ffmpeg -y -f lavfi -i \"anoisesrc=color=pink:duration={$duration}:sample_rate=44100:seed={$seed}\" "
+            . "-af \"" . $audioFilters . "\" "
+            . "-c:a libmp3lame -q:a 2 -ar 44100 "
+            . escapeshellarg($filePath) . " 2>&1";
+        
+        shell_exec($cmd);
 
-        $command = [
-            'ffmpeg',
-            '-y',
-            '-f', 'lavfi',
-            '-i', "anoisesrc=color=pink:duration={$duration}:sample_rate=44100:seed={$seed}",
-            '-af', $filterComplex,
-            '-c:a', 'libmp3lame',
-            '-q:a', '2',
-            '-ar', '44100',
-            $filePath
-        ];
-
-        $process = new Process($command);
-        $process->setTimeout($duration + 60);
-        $process->run();
-
-        if (!$process->isSuccessful()) {
-            return ['status' => 'error', 'message' => 'Failed to generate pink noise'];
+        if (file_exists($filePath)) {
+            return ['status' => 'success'];
         }
-
-        return ['status' => 'success'];
+        
+        Log::error("Failed to generate pink noise");
+        return ['status' => 'error', 'message' => 'Failed to generate pink noise'];
     }
 
     /**
@@ -579,36 +570,21 @@ class ShortVideoHelper
 
         $filePath = $directory . '/' . $filename;
 
-        $audioFilters = [
-            "volume={$volume}*{$amplitudeVar}",
-            "equalizer=f=100:t=q:w=1:g={$bassBoost}",
-            "equalizer=f=1000:t=q:w=1:g={$midCut}",
-            "equalizer=f=8000:t=q:w=1:g={$trebleBoost}"
-        ];
+        $audioFilters = "volume={$volume}*{$amplitudeVar},equalizer=f=100:t=q:w=1:g={$bassBoost},equalizer=f=1000:t=q:w=1:g={$midCut},equalizer=f=8000:t=q:w=1:g={$trebleBoost}";
 
-        $filterComplex = implode(',', $audioFilters);
+        $cmd = "ffmpeg -y -f lavfi -i \"anoisesrc=color=brown:duration={$duration}:sample_rate=44100:seed={$seed}\" "
+            . "-af \"" . $audioFilters . "\" "
+            . "-c:a libmp3lame -q:a 2 -ar 44100 "
+            . escapeshellarg($filePath) . " 2>&1";
+        
+        shell_exec($cmd);
 
-        $command = [
-            'ffmpeg',
-            '-y',
-            '-f', 'lavfi',
-            '-i', "anoisesrc=color=brown:duration={$duration}:sample_rate=44100:seed={$seed}",
-            '-af', $filterComplex,
-            '-c:a', 'libmp3lame',
-            '-q:a', '2',
-            '-ar', '44100',
-            $filePath
-        ];
-
-        $process = new Process($command);
-        $process->setTimeout($duration + 60);
-        $process->run();
-
-        if (!$process->isSuccessful()) {
-            return ['status' => 'error', 'message' => 'Failed to generate brown noise'];
+        if (file_exists($filePath)) {
+            return ['status' => 'success'];
         }
-
-        return ['status' => 'success'];
+        
+        Log::error("Failed to generate brown noise");
+        return ['status' => 'error', 'message' => 'Failed to generate brown noise'];
     }
 
     /**

@@ -257,24 +257,52 @@ class LongVideoHelper
      */
     public static function mixAudioForDuration($durationSeconds)
     {
+        Log::info("LongVideoHelper: Generating audio for {$durationSeconds} seconds");
+        
+        // Create directory if it doesn't exist
+        $directory = storage_path('app/white_audio');
+        if (!file_exists($directory)) {
+            mkdir($directory, 0755, true);
+        }
+        
         ShortVideoHelper::generateWhiteNoiseForDuration($durationSeconds);
+        Log::info("White noise generated for long video");
+        
         ShortVideoHelper::generatePinkNoiseForDuration($durationSeconds);
+        Log::info("Pink noise generated for long video");
+        
         ShortVideoHelper::generateBrownNoiseForDuration($durationSeconds);
+        Log::info("Brown noise generated for long video");
 
         $white = storage_path('app/white_audio/white_short.mp3');
         $pink = storage_path('app/white_audio/pink_short.mp3');
         $brown = storage_path('app/white_audio/brown_short.mp3');
         $output = storage_path('app/white_audio/mixed_long.mp3');
 
+        // Check if noise files were created
+        if (!file_exists($pink)) {
+            Log::error("Pink noise file not created: {$pink}");
+        }
+        if (!file_exists($brown)) {
+            Log::error("Brown noise file not created: {$brown}");
+        }
+
         $cmd = "ffmpeg -y -i " . escapeshellarg($pink) . " -i " . escapeshellarg($brown)
             . " -filter_complex \"[0:a][1:a]amix=inputs=2:duration=longest[a]\""
             . " -map \"[a]\" -c:a libmp3lame -q:a 2 -ar 44100 " . escapeshellarg($output) . " 2>&1";
             
-        shell_exec($cmd);
+        $result = shell_exec($cmd);
+        Log::info("Mix audio result: " . substr($result ?? '', -200));
 
         @unlink($white);
         @unlink($pink);
         @unlink($brown);
+
+        if (file_exists($output)) {
+            Log::info("Long video audio created successfully: " . filesize($output) . " bytes");
+        } else {
+            Log::error("Failed to create long video audio");
+        }
     }
     
     public static function cleanup($files)
