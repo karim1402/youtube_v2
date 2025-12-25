@@ -126,15 +126,27 @@ class UploadYoutubeShortsJob implements ShouldQueue
     public function refresh_access_token($channelId)
     {
         $accessTokenModel = access_token::where('channel_id', $channelId)->first();
-        $this->client->setAccessToken($accessTokenModel->access_token);
+        
+        // Set the full token array so the client has the refresh token to use
+        $this->client->setAccessToken([
+            'access_token' => $accessTokenModel->access_token,
+            'refresh_token' => $accessTokenModel->refresh_token,
+            'expires_in' => $accessTokenModel->expires_at,
+            'created' => time(), // Optional but good practice
+        ]);
         
         if ($this->client->isAccessTokenExpired()) {
             $this->client->fetchAccessTokenWithRefreshToken($accessTokenModel->refresh_token);
             $newAccessToken = $this->client->getAccessToken();
             
             $accessTokenModel->access_token = $newAccessToken['access_token'];
-            $accessTokenModel->refresh_token = $newAccessToken['refresh_token'];
             $accessTokenModel->expires_at = $newAccessToken['expires_in'];
+            
+            // Refresh token is usually NOT returned on refresh, only on first auth
+            if (isset($newAccessToken['refresh_token'])) {
+                $accessTokenModel->refresh_token = $newAccessToken['refresh_token'];
+            }
+            
             $accessTokenModel->save();
         }
     }
