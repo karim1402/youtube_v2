@@ -28,35 +28,46 @@ class LongVideoHelper
         
         date_default_timezone_set('Africa/Cairo');
         
-        // 1. Generate Audio
-        Log::info("Generating audio...");
-        self::mixAudioForDuration($targetSeconds);
-        
-        // 2. Generate Base Video (~5 mins)
+        // 1. Generate Base Video (~5 mins)
         Log::info("Generating base video...");
         $baseVideoPath = self::generateBaseVideo();
         if (!$baseVideoPath) return false;
+
+        // 2. Generate Audio for Base Video
+        Log::info("Generating audio for base video...");
+        $durationCmd = "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " . escapeshellarg($baseVideoPath);
+        $baseDuration = floatval(trim(shell_exec($durationCmd)));
+        if ($baseDuration <= 0) $baseDuration = 300;
         
-        // 3. Loop Base Video to Target Duration
+        self::mixAudioForDuration($baseDuration);
+        
+        // 3. Merge Audio to Base Video
+        Log::info("Merging audio to base video...");
+        $audioPath = storage_path('app/white_audio/mixed_long.mp3');
+        $videoWithAudioPath = storage_path('app/finals/long_base_video_audio.mp4');
+        
+        $cmd = "ffmpeg -y -i " . escapeshellarg($baseVideoPath)
+            . " -i " . escapeshellarg($audioPath)
+            . " -c:v copy -c:a aac -shortest " . escapeshellarg($videoWithAudioPath) . " 2>&1";
+        exec($cmd);
+        
+        if (file_exists($videoWithAudioPath)) {
+            unlink($baseVideoPath);
+            unlink($audioPath);
+            $baseVideoPath = $videoWithAudioPath;
+        }
+        
+        // 4. Loop Video to Target Duration (includes Intro)
         Log::info("Looping video to target duration...");
         $loopedVideoPath = self::loopVideoToDuration($baseVideoPath, $targetMinutes);
         if (!$loopedVideoPath) return false;
         
-        // 4. Add Intro
-        Log::info("Adding intro...");
-        $videoWithIntroPath = self::addIntro($loopedVideoPath);
-        if (!$videoWithIntroPath) return false;
-        
-        // 5. Merge with Audio
-        Log::info("Merging with audio...");
-        $finalVideoPath = self::mergeWithAudio($videoWithIntroPath);
-        
-        // 6. Compress
+        // 5. Compress
         Log::info("Compressing final video...");
-        $compressedPath = self::compressVideo($finalVideoPath, $targetHours);
+        $compressedPath = self::compressVideo($loopedVideoPath, $targetHours);
         
         // Cleanup intermediate files
-        self::cleanup([$baseVideoPath, $loopedVideoPath, $videoWithIntroPath, $finalVideoPath]);
+        self::cleanup([$baseVideoPath, $loopedVideoPath]);
         
         return $compressedPath;
     }
@@ -135,6 +146,57 @@ class LongVideoHelper
         // Create list file
         $listFile = storage_path('app/long_loop_list.txt');
         $content = "";
+
+        // --- INTRO LOGIC ---
+        $introPath = storage_path('app/intros');
+        if (file_exists($introPath) && is_dir($introPath)) {
+            $intros = collect(File::files($introPath))
+                ->filter(function ($file) {
+                    return in_array(strtolower($file->getExtension()), ['mp4', 'mov', 'avi']);
+                });
+
+            if ($intros->isNotEmpty()) {
+                $randomIntro = $intros->random()->getPathname();
+                $fixedIntro = storage_path('app/finals/fixed_intro_long.mp4');
+
+                // Get specs from base video
+                $probeCmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate -of csv=p=0 " . escapeshellarg($baseVideoPath);
+                $specs = trim(shell_exec($probeCmd));
+                list($width, $height, $frameRate) = explode(',', $specs);
+
+                if (strpos($frameRate, '/') !== false) {
+                    $parts = explode('/', $frameRate);
+                    $frameRate = intval($parts[0]) / intval($parts[1]);
+                }
+
+                // Get audio specs
+                $audioProbeCmd = "ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate,channels -of csv=p=0 " . escapeshellarg($baseVideoPath);
+                $audioSpecs = trim(shell_exec($audioProbeCmd));
+                $sampleRate = 44100;
+                $channels = 2;
+                if (!empty($audioSpecs) && strpos($audioSpecs, ',') !== false) {
+                    list($sampleRate, $channels) = explode(',', $audioSpecs);
+                }
+
+                // Re-encode intro
+                $filterComplex = "scale={$width}:{$height}:force_original_aspect_ratio=decrease,pad={$width}:{$height}:(ow-iw)/2:(oh-ih)/2,fps={$frameRate}";
+                $fixCmd = "ffmpeg -y -i " . escapeshellarg($randomIntro) 
+                    . " -c:v libx264 -preset fast -crf 23"
+                    . " -vf " . escapeshellarg($filterComplex)
+                    . " -c:a aac -b:a 192k -ar {$sampleRate} -ac {$channels}"
+                    . " " . escapeshellarg($fixedIntro) . " 2>&1";
+                
+                exec($fixCmd, $reencodeOutput, $reencodeReturn);
+
+                if ($reencodeReturn === 0 && file_exists($fixedIntro)) {
+                    $content .= "file '" . $fixedIntro . "'\n";
+                    Log::info("Intro added to loop list");
+                } else {
+                    Log::error("Failed to re-encode intro: " . implode("\n", $reencodeOutput));
+                }
+            }
+        }
+
         for ($i = 0; $i < $loopCount; $i++) {
             $content .= "file '$baseVideoPath'\n";
         }
@@ -144,6 +206,7 @@ class LongVideoHelper
         exec($cmd, $output, $returnVar);
         
         unlink($listFile);
+        if (isset($fixedIntro) && file_exists($fixedIntro)) unlink($fixedIntro);
         
         return ($returnVar === 0) ? $outputPath : false;
     }
@@ -151,74 +214,7 @@ class LongVideoHelper
     /**
      * Add random intro to the start
      */
-    public static function addIntro($videoPath)
-    {
-        $introPath = storage_path('app/intros');
-        $outputPath = storage_path('app/finals/long_video_with_intro.mp4');
 
-        if (!file_exists($introPath)) return $videoPath; // Skip if no intros
-
-        $intros = collect(File::files($introPath))
-            ->filter(function ($file) {
-                return in_array(strtolower($file->getExtension()), ['mp4', 'mov', 'avi']);
-            })
-            ->values();
-
-        if ($intros->isEmpty()) return $videoPath;
-
-        $randomIntro = $intros->random()->getPathname();
-        
-        // Re-encode intro to match base video properties to avoid concat issues
-        $fixedIntro = storage_path('app/finals/fixed_intro.mp4');
-        
-        // Get video properties
-        $probeCmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate -of csv=p=0 " . escapeshellarg($videoPath);
-        $specs = trim(shell_exec($probeCmd));
-        list($width, $height, $fps) = explode(',', $specs);
-        
-        // Fix intro
-        $fixCmd = "ffmpeg -i " . escapeshellarg($randomIntro) 
-            . " -vf \"scale=$width:$height:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2\""
-            . " -c:v libx264 -preset fast -crf 23 -c:a aac -ar 44100 -y " . escapeshellarg($fixedIntro) . " 2>&1";
-        shell_exec($fixCmd);
-
-        // Concat
-        $listFile = storage_path('app/long_intro_list.txt');
-        file_put_contents($listFile, "file '$fixedIntro'\nfile '$videoPath'\n");
-        
-        $cmd = "ffmpeg -f concat -safe 0 -i " . escapeshellarg($listFile) . " -c copy -y " . escapeshellarg($outputPath) . " 2>&1";
-        exec($cmd, $output, $returnVar);
-        
-        unlink($listFile);
-        if (file_exists($fixedIntro)) unlink($fixedIntro);
-        
-        return ($returnVar === 0) ? $outputPath : false;
-    }
-
-    /**
-     * Merge video with generated audio
-     */
-    public static function mergeWithAudio($videoPath)
-    {
-        $audioPath = storage_path('app/white_audio/mixed_long.mp3');
-        $outputPath = storage_path('app/finals/long_video_final_audio.mp4');
-        
-        if (!file_exists($audioPath)) {
-            Log::error("Audio file not found: $audioPath");
-            return $videoPath;
-        }
-
-        $cmd = "ffmpeg -y -i " . escapeshellarg($videoPath)
-            . " -i " . escapeshellarg($audioPath)
-            . " -c:v copy -c:a aac -shortest " . escapeshellarg($outputPath) . " 2>&1";
-            
-        exec($cmd, $output, $returnVar);
-        
-        // Cleanup audio
-        unlink($audioPath);
-        
-        return ($returnVar === 0) ? $outputPath : false;
-    }
 
     /**
      * Compress video based on duration
