@@ -577,6 +577,7 @@ class ShortVideoHelper
             'model' => 'gpt-4.1',
             'input' => $text,
         ]);
+        Log::info(['response'=> $response->json()]);
 
         return $response->json()["output"][0]['content'][0]['text'];
     }
