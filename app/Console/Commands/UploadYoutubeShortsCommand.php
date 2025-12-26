@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Jobs\UploadYoutubeShortsJob;
+use Illuminate\Support\Facades\Artisan;
 
 class UploadYoutubeShortsCommand extends Command
 {
@@ -19,7 +20,7 @@ class UploadYoutubeShortsCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Create and upload a vertical YouTube Short (60-180s)';
+    protected $description = 'Create and upload a vertical YouTube Short (60-180s) and process queue';
 
     /**
      * Execute the console command.
@@ -30,7 +31,14 @@ class UploadYoutubeShortsCommand extends Command
         
         UploadYoutubeShortsJob::dispatch();
         
-        $this->info('Job dispatched successfully.');
+        $this->info('Job dispatched. Starting queue worker...');
+        
+        Artisan::call('queue:work', [
+            '--stop-when-empty' => true,
+            '--timeout' => 3600,
+        ]);
+        
+        $this->info('Queue processing completed.');
         
         return Command::SUCCESS;
     }
