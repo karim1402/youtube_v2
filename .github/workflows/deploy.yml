@@ -18,7 +18,7 @@ jobs:
 
       - name: Deploy via rsync with password
         run: |
-          sshpass -p 'AsdPvdE0IX9n1ZOnpb5z' rsync -rlvz --no-times --no-perms \
+          sshpass -p '1fE1c4FK/AZP8E./z.K3' rsync -rlvz --no-times --no-perms \
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude 'vendor' \
@@ -26,19 +26,25 @@ jobs:
             --exclude 'storage' \
             --exclude '.DS_Store' \
             -e "ssh -o StrictHostKeyChecking=no -p 22" \
-            ./ karim-ssh@148.230.116.157:/home/karim/htdocs/socialproductionmedia.com/
+            ./ root@148.230.116.157:/home/karim/htdocs/socialproductionmedia.com/
 
       - name: Run post-deploy commands
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 148.230.116.157
-          username: karim-ssh
-          password: AsdPvdE0IX9n1ZOnpb5z
+          username: root
+          password: 1fE1c4FK/AZP8E./z.K3
           port: 22
           script: |
             cd /home/karim/htdocs/socialproductionmedia.com
+            # Fix ownership after root upload
+            chown -R karim:karim .
+            chmod -R 755 .
+            chmod -R 775 storage bootstrap/cache
+            
             composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
             php artisan queue:restart
+
