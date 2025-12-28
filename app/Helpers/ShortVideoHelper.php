@@ -566,7 +566,7 @@ class ShortVideoHelper
      */
     public static function generateText($text)
     {
-        $apiKey = env('OPENAI_API_KEY');
+       $apiKey = env('OPENAI_API_KEY');
 
         $url = "https://api.openai.com/v1/responses";
 

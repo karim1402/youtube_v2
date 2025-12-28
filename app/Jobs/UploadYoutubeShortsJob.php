@@ -120,6 +120,9 @@ class UploadYoutubeShortsJob implements ShouldQueue
         // Cleanup
         @unlink($videoPath);
 
+        // Add to all playlists
+        \App\Helpers\YouTubePlaylistHelper::addVideoToAllPlaylists($this->client, $uploadStatus['id']);
+
         return response()->json(['message' => 'Shorts uploaded', 'video_id' => $uploadStatus['id']]);
     }
 

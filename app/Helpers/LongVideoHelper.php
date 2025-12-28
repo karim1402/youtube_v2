@@ -330,4 +330,43 @@ class LongVideoHelper
     {
         return ShortVideoHelper::generateText($text);
     }
+    /**
+     * Extend a video by concatenating it multiple times (stream copy)
+     * @param string $sourcePath Path to source video
+     * @param int $multiplier Number of times to repeat
+     * @return string|false Path to extended video
+     */
+    public static function extendVideo($sourcePath, $multiplier)
+    {
+        if (!file_exists($sourcePath)) {
+            Log::error("Source video for extension not found: $sourcePath");
+            return false;
+        }
+
+        $outputPath = storage_path("app/outputs/long_video_extended_{$multiplier}x.mp4");
+        $listFile = storage_path("app/extend_list_{$multiplier}.txt");
+        
+        $content = "";
+        for ($i = 0; $i < $multiplier; $i++) {
+            $content .= "file '$sourcePath'\n";
+        }
+        file_put_contents($listFile, $content);
+        
+        Log::info("Extending video {$multiplier}x...");
+        
+        // Use stream copy for speed
+        $cmd = "ffmpeg -f concat -safe 0 -i " . escapeshellarg($listFile) 
+            . " -c copy -y " . escapeshellarg($outputPath) . " 2>&1";
+            
+        exec($cmd, $output, $returnVar);
+        
+        @unlink($listFile);
+        
+        if ($returnVar === 0 && file_exists($outputPath)) {
+            return $outputPath;
+        }
+        
+        Log::error("Failed to extend video: " . implode("\n", $output));
+        return false;
+    }
 }

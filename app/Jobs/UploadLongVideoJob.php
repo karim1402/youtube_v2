@@ -28,45 +28,63 @@ class UploadLongVideoJob implements ShouldQueue
 
     public function handle()
     {
-        Log::info('UploadLongVideoJob started - Processing 1h, 3h, 10h videos sequentially');
+        Log::info('UploadLongVideoJob started - Optimized Workflow');
 
-        $targets = [1, 3, 10]; // Hours
+        // 1. Generate 1-Hour Base Video
+        Log::info("=== Generating 1h Base Video ===");
+        $oneHourPath = LongVideoHelper::processVideo(1);
 
-        foreach ($targets as $hours) {
-            Log::info("=== Starting {$hours}h video ===");
+        if (!$oneHourPath || !file_exists($oneHourPath)) {
+            Log::error("Failed to create 1h base video. Aborting.");
+            return;
+        }
+        Log::info("1h Base Video created: $oneHourPath");
 
-            // 1. Create the video
-            $videoPath = LongVideoHelper::processVideo($hours);
+        // 2. Upload 1-Hour Video
+        $this->processAndUpload($oneHourPath, 1);
 
-            if (!$videoPath || !file_exists($videoPath)) {
-                Log::error("Failed to create {$hours}h video");
-                continue;
-            }
+        // 3. Create and Upload 3-Hour Video (Extend 1h x 3)
+        Log::info("=== Generating 3h Video (Extending 1h) ===");
+        $threeHourPath = LongVideoHelper::extendVideo($oneHourPath, 3);
+        if ($threeHourPath) {
+            $this->processAndUpload($threeHourPath, 3);
+            if (file_exists($threeHourPath)) unlink($threeHourPath);
+        }
 
-            Log::info("Video created: $videoPath");
+        // 4. Create and Upload 10-Hour Video (Extend 1h x 10)
+        Log::info("=== Generating 10h Video (Extending 1h) ===");
+        $tenHourPath = LongVideoHelper::extendVideo($oneHourPath, 10);
+        if ($tenHourPath) {
+            $this->processAndUpload($tenHourPath, 10);
+            if (file_exists($tenHourPath)) unlink($tenHourPath);
+        }
 
-            // 2. Generate thumbnail
-            LongVideoHelper::overlayImages();
-
-            // 3. Upload to YouTube
-            $videoId = $this->uploadToYouTube($videoPath, $hours);
-
-            if ($videoId) {
-                Log::info("Successfully uploaded {$hours}h video. ID: $videoId");
-            } else {
-                Log::error("Failed to upload {$hours}h video");
-            }
-
-            // 4. Delete video to free space
-            if (file_exists($videoPath)) {
-                unlink($videoPath);
-                Log::info("Deleted {$hours}h video to free storage");
-            }
-
-            Log::info("=== Completed {$hours}h video ===");
+        // Cleanup Base Video
+        if (file_exists($oneHourPath)) {
+            unlink($oneHourPath);
+            Log::info("Deleted 1h base video");
         }
 
         Log::info('UploadLongVideoJob completed - All videos processed');
+    }
+
+    private function processAndUpload($videoPath, $hours)
+    {
+        Log::info("Processing upload for {$hours}h video...");
+        
+        // Generate thumbnail
+        LongVideoHelper::overlayImages();
+
+        // Upload
+        $videoId = $this->uploadToYouTube($videoPath, $hours);
+
+        if ($videoId) {
+            Log::info("Successfully uploaded {$hours}h video. ID: $videoId");
+            // Add to all playlists
+            \App\Helpers\YouTubePlaylistHelper::addVideoToAllPlaylists($this->client, $videoId);
+        } else {
+            Log::error("Failed to upload {$hours}h video");
+        }
     }
 
     private function uploadToYouTube($videoPath, $hours)

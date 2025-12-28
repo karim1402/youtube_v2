@@ -187,6 +187,9 @@ class UploadShortVideoJob implements ShouldQueue
         Log::info('Short video upload finished');
         
         $this->uploadThumbnail($uploadStatus['id']);
+        
+        // Add to all playlists
+        \App\Helpers\YouTubePlaylistHelper::addVideoToAllPlaylists($this->client, $uploadStatus['id']);
 
         return response()->json(['message' => 'Short video uploaded successfully', 'video_id' => $uploadStatus['id'], 'duration_minutes' => $videoMinutes]);
     }
