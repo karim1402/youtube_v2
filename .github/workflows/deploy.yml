@@ -32,8 +32,8 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 148.230.116.157
-          username: root
-          password: 0Vq)deWoRx87?W5UPFor
+          username: karim-ssh
+          password: UUYYNu1lnqqZjvyaaYY5
           port: 22
           script: |
             cd /home/karim/htdocs/socialproductionmedia.com
