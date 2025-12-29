@@ -18,7 +18,7 @@ jobs:
 
       - name: Deploy via rsync with password
         run: |
-          sshpass -p '1fE1c4FK/AZP8E./z.K3' rsync -rlvz --no-times --no-perms \
+          sshpass -p 'UUYYNu1lnqqZjvyaaYY5' rsync -rlvz --no-times --no-perms \
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude 'vendor' \
@@ -37,10 +37,10 @@ jobs:
           port: 22
           script: |
             cd /home/karim/htdocs/socialproductionmedia.com
-            # Fix ownership after root upload
-            chown -R karim:karim .
-            chmod -R 755 .
-            chmod -R 775 storage bootstrap/cache
+            # Ensure correct ownership and permissions
+            sudo chown -R karim:karim .
+            sudo chmod -R 755 .
+            sudo chmod -R 775 storage bootstrap/cache
             
             composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
             php artisan config:cache
