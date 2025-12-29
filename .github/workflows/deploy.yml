@@ -33,7 +33,7 @@ jobs:
         with:
           host: 148.230.116.157
           username: root
-          password: -Dfs9Ck87sl/,uhSU;7x
+          password: 0Vq)deWoRx87?W5UPFor
           port: 22
           script: |
             cd /home/karim/htdocs/socialproductionmedia.com
